@@ -59,7 +59,7 @@ pub fn create_ecx<'mir, 'tcx: 'mir>(
     tcx: TyCtxt<'tcx>,
     main_id: DefId,
     config: MiriConfig,
-) -> InterpResult<'tcx, (InterpCx<'mir, 'tcx, Evaluator<'tcx>>, MPlaceTy<'tcx, Tag>)> {
+) -> InterpResult<'tcx, (InterpCx<'mir, 'tcx, Evaluator<'mir, 'tcx>>, MPlaceTy<'tcx, Tag>)> {
     let mut ecx = InterpCx::new(
         tcx.at(rustc_span::source_map::DUMMY_SP),
         ty::ParamEnv::reveal_all(),
@@ -198,7 +198,8 @@ pub fn eval_main<'tcx>(tcx: TyCtxt<'tcx>, main_id: DefId, config: MiriConfig) ->
     // Perform the main execution.
     let res: InterpResult<'_, i64> = (|| {
         // Main loop.
-        while ecx.step()? {
+        while ecx.schedule()? {
+            assert!(ecx.step()?);
             ecx.process_diagnostics();
         }
         // Read the return code pointer *before* we run TLS destructors, to assert

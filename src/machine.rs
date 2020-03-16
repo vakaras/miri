@@ -18,6 +18,8 @@ use rustc_span::symbol::{sym, Symbol};
 
 use crate::*;
 
+pub use crate::threads::{ThreadId, ThreadSet, ThreadLocalStorage};
+
 // Some global facts about the emulated machine.
 pub const PAGE_SIZE: u64 = 4 * 1024; // FIXME: adjust to target architecture
 pub const STACK_ADDR: u64 = 32 * PAGE_SIZE; // not really about the "stack", but where we start assigning integer addresses to allocations
@@ -74,6 +76,7 @@ pub struct AllocExtra {
 pub struct MemoryExtra {
     pub stacked_borrows: Option<stacked_borrows::MemoryExtra>,
     pub intptrcast: intptrcast::MemoryExtra,
+    pub tls: ThreadLocalStorage,
 
     /// Mapping extern static names to their canonical allocation.
     extern_statics: FxHashMap<Symbol, AllocId>,
@@ -100,6 +103,7 @@ impl MemoryExtra {
             extern_statics: FxHashMap::default(),
             rng: RefCell::new(rng),
             tracked_alloc_id,
+            tls: Default::default(),
         }
     }
 
@@ -147,7 +151,7 @@ impl MemoryExtra {
 }
 
 /// The machine itself.
-pub struct Evaluator<'tcx> {
+pub struct Evaluator<'mir, 'tcx> {
     /// Environment variables set by `setenv`.
     /// Miri does not expose env vars from the host to the emulated program.
     pub(crate) env_vars: EnvVars<'tcx>,
@@ -182,9 +186,11 @@ pub struct Evaluator<'tcx> {
 
     /// The "time anchor" for this machine's monotone clock (for `Instant` simulation).
     pub(crate) time_anchor: Instant,
+
+    pub(crate) threads: ThreadSet<'mir, 'tcx>,
 }
 
-impl<'tcx> Evaluator<'tcx> {
+impl<'mir, 'tcx> Evaluator<'mir, 'tcx> {
     pub(crate) fn new(communicate: bool, validate: bool) -> Self {
         Evaluator {
             // `env_vars` could be initialized properly here if `Memory` were available before
@@ -201,12 +207,13 @@ impl<'tcx> Evaluator<'tcx> {
             dir_handler: Default::default(),
             panic_payload: None,
             time_anchor: Instant::now(),
+            threads: Default::default(),
         }
     }
 }
 
 /// A rustc InterpCx for Miri.
-pub type MiriEvalContext<'mir, 'tcx> = InterpCx<'mir, 'tcx, Evaluator<'tcx>>;
+pub type MiriEvalContext<'mir, 'tcx> = InterpCx<'mir, 'tcx, Evaluator<'mir, 'tcx>>;
 
 /// A little trait that's useful to be inherited by extension traits.
 pub trait MiriEvalContextExt<'mir, 'tcx> {
@@ -225,7 +232,7 @@ impl<'mir, 'tcx> MiriEvalContextExt<'mir, 'tcx> for MiriEvalContext<'mir, 'tcx> 
 }
 
 /// Machine hook implementations.
-impl<'mir, 'tcx> Machine<'mir, 'tcx> for Evaluator<'tcx> {
+impl<'mir, 'tcx> Machine<'mir, 'tcx> for Evaluator<'mir, 'tcx> {
     type MemoryKind = MiriMemoryKind;
 
     type FrameExtra = FrameData<'tcx>;
@@ -240,6 +247,19 @@ impl<'mir, 'tcx> Machine<'mir, 'tcx> for Evaluator<'tcx> {
     const GLOBAL_KIND: Option<MiriMemoryKind> = Some(MiriMemoryKind::Global);
 
     const CHECK_ALIGN: bool = true;
+
+    #[inline(always)]
+    fn stack<'a>(
+        ecx: &'a InterpCx<'mir, 'tcx, Self>
+    ) -> &'a [Frame<'mir, 'tcx, Self::PointerTag, Self::FrameExtra>] {
+        ecx.active_thread_stack()
+    }
+
+    fn stack_mut<'a>(
+        ecx: &'a mut InterpCx<'mir, 'tcx, Self>
+    ) -> &'a mut Vec<Frame<'mir, 'tcx, Self::PointerTag, Self::FrameExtra>> {
+        ecx.active_thread_stack_mut()
+    }
 
     #[inline(always)]
     fn enforce_validity(ecx: &InterpCx<'mir, 'tcx, Self>) -> bool {
@@ -333,27 +353,37 @@ impl<'mir, 'tcx> Machine<'mir, 'tcx> for Evaluator<'tcx> {
 
     fn canonical_alloc_id(mem: &Memory<'mir, 'tcx, Self>, id: AllocId) -> AllocId {
         let tcx = mem.tcx;
-        // Figure out if this is an extern static, and if yes, which one.
-        let def_id = match tcx.alloc_map.lock().get(id) {
-            Some(GlobalAlloc::Static(def_id)) if tcx.is_foreign_item(def_id) => def_id,
+        let alloc = tcx.alloc_map.lock().get(id);
+        match alloc {
+            Some(GlobalAlloc::Static(def_id)) if tcx.is_foreign_item(def_id) => {
+                // Figure out if this is an extern static, and if yes, which one.
+                let attrs = tcx.get_attrs(def_id);
+                let link_name = match attr::first_attr_value_str_by_name(&attrs, sym::link_name) {
+                    Some(name) => name,
+                    None => tcx.item_name(def_id),
+                };
+                // Check if we know this one.
+                if let Some(canonical_id) = mem.extra.extern_statics.get(&link_name) {
+                    trace!("canonical_alloc_id: {:?} ({}) -> {:?}", id, link_name, canonical_id);
+                    *canonical_id
+                } else {
+                    // Return original id; `Memory::get_static_alloc` will throw an error.
+                    id
+                }
+            },
+            Some(GlobalAlloc::Static(def_id)) if tcx.has_attr(def_id, sym::thread_local) => {
+                // We have a thread local, so we need to get a unique allocation id for it.
+                mem.extra.tls.get_or_register_allocation(*tcx, id)
+            },
             _ => {
                 // No need to canonicalize anything.
-                return id;
+                id
             }
-        };
-        let attrs = tcx.get_attrs(def_id);
-        let link_name = match attr::first_attr_value_str_by_name(&attrs, sym::link_name) {
-            Some(name) => name,
-            None => tcx.item_name(def_id),
-        };
-        // Check if we know this one.
-        if let Some(canonical_id) = mem.extra.extern_statics.get(&link_name) {
-            trace!("canonical_alloc_id: {:?} ({}) -> {:?}", id, link_name, canonical_id);
-            *canonical_id
-        } else {
-            // Return original id; `Memory::get_static_alloc` will throw an error.
-            id
         }
+    }
+
+    fn resolve_thread_local_allocation_id(extra: &Self::MemoryExtra, id: AllocId) -> AllocId {
+        extra.tls.resolve_allocation(id)
     }
 
     fn init_allocation_extra<'b>(

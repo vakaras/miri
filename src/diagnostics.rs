@@ -43,7 +43,7 @@ pub enum NonHaltingDiagnostic {
 
 /// Emit a custom diagnostic without going through the miri-engine machinery
 pub fn report_error<'tcx, 'mir>(
-    ecx: &InterpCx<'mir, 'tcx, Evaluator<'tcx>>,
+    ecx: &InterpCx<'mir, 'tcx, Evaluator<'mir, 'tcx>>,
     mut e: InterpErrorInfo<'tcx>,
 ) -> Option<i64> {
     use InterpError::*;
@@ -108,7 +108,7 @@ pub fn report_error<'tcx, 'mir>(
 /// Report an error or note (depending on the `error` argument) at the current frame's current statement.
 /// Also emits a full stacktrace of the interpreter stack.
 fn report_msg<'tcx, 'mir>(
-    ecx: &InterpCx<'mir, 'tcx, Evaluator<'tcx>>,
+    ecx: &InterpCx<'mir, 'tcx, Evaluator<'mir, 'tcx>>,
     title: &str,
     span_msg: String,
     helps: &[String],
@@ -164,7 +164,7 @@ pub fn register_diagnostic(e: NonHaltingDiagnostic) {
     DIAGNOSTICS.with(|diagnostics| diagnostics.borrow_mut().push(e));
 }
 
-impl<'mir, 'tcx> EvalContextExt<'mir, 'tcx> for crate::MiriEvalContext<'mir, 'tcx> {}
+impl<'mir, 'tcx: 'mir> EvalContextExt<'mir, 'tcx> for crate::MiriEvalContext<'mir, 'tcx> {}
 pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx> {
     /// Emit all diagnostics that were registed with `register_diagnostics`
     fn process_diagnostics(&self) {
