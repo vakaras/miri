@@ -1,4 +1,3 @@
-// ignore-windows: TODO the windows hook is not done yet
 // compile-flags: -Zmiri-disable-isolation
 use std::env;
 use std::path::Path;
