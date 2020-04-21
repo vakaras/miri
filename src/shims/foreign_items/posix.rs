@@ -292,6 +292,45 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
                 let result = this.pthread_rwlock_destroy(args[0])?;
                 this.write_scalar(Scalar::from_i32(result), dest)?;
             }
+            "pthread_condattr_init" => {
+                let result = this.pthread_condattr_init(args[0])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_condattr_setclock" => {
+                let result = this.pthread_condattr_setclock(args[0], args[1])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_condattr_getclock" => {
+                let result = this.pthread_condattr_getclock(args[0], args[1])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_condattr_destroy" => {
+                let result = this.pthread_condattr_destroy(args[0])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_cond_init" => {
+                let result = this.pthread_cond_init(args[0], args[1])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_cond_signal" => {
+                let result = this.pthread_cond_signal(args[0])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_cond_broadcast" => {
+                let result = this.pthread_cond_broadcast(args[0])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_cond_wait" => {
+                let result = this.pthread_cond_wait(args[0], args[1])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
+            "pthread_cond_timedwait" => {
+                this.pthread_cond_timedwait(args[0], args[1], args[2], dest)?;
+            }
+            "pthread_cond_destroy" => {
+                let result = this.pthread_cond_destroy(args[0])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
 
             // Threading
             "pthread_create" => {
@@ -340,12 +379,7 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
             // These shims are enabled only when the caller is in the standard library.
             | "pthread_attr_init"
             | "pthread_attr_destroy"
-            | "pthread_attr_setstacksize"
-            | "pthread_condattr_init"
-            | "pthread_condattr_setclock"
-            | "pthread_cond_init"
-            | "pthread_condattr_destroy"
-            | "pthread_cond_destroy" if this.frame().instance.to_string().starts_with("std::sys::unix::")
+            | "pthread_attr_setstacksize" if this.frame().instance.to_string().starts_with("std::sys::unix::")
             => {
                 this.write_null(dest)?;
             }
