@@ -666,9 +666,9 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
         Ok(())
     }
 
-    /// Execute the callback on the callback's thread.
+    /// Execute a timeout callback on the callback's thread.
     #[inline]
-    fn run_scheduler_callback(&mut self) -> InterpResult<'tcx> {
+    fn run_timeout_callback(&mut self) -> InterpResult<'tcx> {
         let this = self.eval_context_mut();
         let (thread, callback) = this.machine.threads.get_callback().expect("no callback found");
         let old_thread = this.set_active_thread(thread)?;

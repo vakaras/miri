@@ -214,7 +214,7 @@ pub fn eval_main<'tcx>(tcx: TyCtxt<'tcx>, main_id: DefId, config: MiriConfig) ->
                     assert!(ecx.machine.communicate,
                         "scheduler callbacks require disabled isolation, but the code \
                         that created the callback did not check it");
-                    ecx.run_scheduler_callback()?;
+                    ecx.run_timeout_callback()?;
                 }
                 SchedulingAction::ExecuteDtors => {
                     // This will either enable the thread again (so we go back
