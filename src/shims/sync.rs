@@ -128,7 +128,7 @@ fn mutex_get_or_create_id<'mir, 'tcx: 'mir>(
         mutex_set_id(ecx, mutex_op, id.to_u32_scalar())?;
         Ok(id)
     } else {
-        Ok(id.into())
+        Ok(MutexId::from_u32(id))
     }
 }
 
@@ -168,7 +168,7 @@ fn rwlock_get_or_create_id<'mir, 'tcx: 'mir>(
         rwlock_set_id(ecx, rwlock_op, id.to_u32_scalar())?;
         Ok(id)
     } else {
-        Ok(id.into())
+        Ok(RwLockId::from_u32(id))
     }
 }
 
@@ -232,7 +232,7 @@ fn cond_get_or_create_id<'mir, 'tcx: 'mir>(
         cond_set_id(ecx, cond_op, id.to_u32_scalar())?;
         Ok(id)
     } else {
-        Ok(id.into())
+        Ok(CondvarId::from_u32(id))
     }
 }
 
