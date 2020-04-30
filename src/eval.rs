@@ -210,7 +210,7 @@ pub fn eval_main<'tcx>(tcx: TyCtxt<'tcx>, main_id: DefId, config: MiriConfig) ->
                 SchedulingAction::ExecuteStep => {
                     assert!(ecx.step()?, "a terminated thread was scheduled for execution");
                 }
-                SchedulingAction::ExecuteCallback => {
+                SchedulingAction::ExecuteTimeoutCallback => {
                     assert!(ecx.machine.communicate,
                         "scheduler callbacks require disabled isolation, but the code \
                         that created the callback did not check it");
