@@ -32,7 +32,7 @@ fn test_timed_wait_timeout_monotonic() {
             libc::pthread_cond_timedwait(&mut cond as *mut _, &mut mutex as *mut _, &timeout),
             libc::ETIMEDOUT
         );
-        assert!(current_time.elapsed().as_millis() >= 1000);
+        assert!(current_time.elapsed().as_millis() >= 900);
         assert_eq!(libc::pthread_mutex_unlock(&mut mutex as *mut _), 0);
         assert_eq!(libc::pthread_mutex_destroy(&mut mutex as *mut _), 0);
         assert_eq!(libc::pthread_cond_destroy(&mut cond as *mut _), 0);
@@ -61,7 +61,7 @@ fn test_timed_wait_timeout_realtime() {
             libc::pthread_cond_timedwait(&mut cond as *mut _, &mut mutex as *mut _, &timeout),
             libc::ETIMEDOUT
         );
-        assert!(current_time.elapsed().as_millis() >= 1000);
+        assert!(current_time.elapsed().as_millis() >= 900);
         assert_eq!(libc::pthread_mutex_unlock(&mut mutex as *mut _), 0);
         assert_eq!(libc::pthread_mutex_destroy(&mut mutex as *mut _), 0);
         assert_eq!(libc::pthread_cond_destroy(&mut cond as *mut _), 0);
