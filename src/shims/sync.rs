@@ -1,5 +1,4 @@
-use std::time::{Duration, SystemTime};
-use std::convert::TryInto;
+use std::time::SystemTime;
 
 use rustc_middle::ty::{layout::TyAndLayout, TyKind, TypeAndMut};
 use rustc_target::abi::{LayoutOf, Size};
@@ -715,23 +714,7 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
 
         // Extract the timeout.
         let clock_id = cond_get_clock_id(this, cond_op)?.to_i32()?;
-        let duration = {
-            let tp = this.deref_operand(abstime_op)?;
-            let mut offset = Size::from_bytes(0);
-            let layout = this.libc_ty_layout("time_t")?;
-            let seconds_place = tp.offset(offset, MemPlaceMeta::None, layout, this)?;
-            let seconds = this.read_scalar(seconds_place.into())?;
-            offset += layout.size;
-            let layout = this.libc_ty_layout("c_long")?;
-            let nanoseconds_place = tp.offset(offset, MemPlaceMeta::None, layout, this)?;
-            let nanoseconds = this.read_scalar(nanoseconds_place.into())?;
-            let (seconds, nanoseconds) = if this.pointer_size().bytes() == 8 {
-                (seconds.to_u64()?, nanoseconds.to_u64()?.try_into().unwrap())
-            } else {
-                (seconds.to_u32()?.into(), nanoseconds.to_u32()?)
-            };
-            Duration::new(seconds, nanoseconds)
-        };
+        let duration = this.posix_timespec_to_duration(abstime_op)?;
 
         let timeout_time = if clock_id == this.eval_libc_i32("CLOCK_REALTIME")? {
             let time_anchor_since_epoch =

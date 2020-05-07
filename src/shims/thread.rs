@@ -1,10 +1,49 @@
 use std::convert::TryInto;
+use std::time::{Duration, Instant};
 
 use crate::*;
-use rustc_target::abi::LayoutOf;
+use rustc_target::abi::{LayoutOf, Size};
 
 impl<'mir, 'tcx> EvalContextExt<'mir, 'tcx> for crate::MiriEvalContext<'mir, 'tcx> {}
 pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx> {
+    /// Helper function that converts `timespec` argument to duration.
+    fn posix_timespec_to_duration(
+        &mut self,
+        timespec: OpTy<'tcx, Tag>,
+    ) -> InterpResult<'tcx, Duration> {
+        let this = self.eval_context_mut();
+
+        let tp = this.deref_operand(timespec)?;
+        let mut offset = Size::from_bytes(0);
+        let layout = this.libc_ty_layout("time_t")?;
+        let seconds_place = tp.offset(offset, MemPlaceMeta::None, layout, this)?;
+        let seconds = this.read_scalar(seconds_place.into())?;
+        offset += layout.size;
+        let layout = this.libc_ty_layout("c_long")?;
+        let nanoseconds_place = tp.offset(offset, MemPlaceMeta::None, layout, this)?;
+        let nanoseconds = this.read_scalar(nanoseconds_place.into())?;
+        let (seconds, nanoseconds) = if this.pointer_size().bytes() == 8 {
+            let nanoseconds = nanoseconds.to_u64()?;
+            if nanoseconds > 999999999 {
+                throw_ub_format!(
+                    "the provided value for nanoseconds is {}, but should be less than a billion",
+                    nanoseconds
+                );
+            }
+            (seconds.to_u64()?, nanoseconds.try_into().unwrap())
+        } else {
+            let nanoseconds = nanoseconds.to_u32()?;
+            if nanoseconds > 999999999 {
+                throw_ub_format!(
+                    "the provided value for nanoseconds is {}, but should be less than a billion",
+                    nanoseconds
+                );
+            }
+            (seconds.to_u32()?.into(), nanoseconds)
+        };
+        Ok(Duration::new(seconds, nanoseconds))
+    }
+
     fn pthread_create(
         &mut self,
         thread: OpTy<'tcx, Tag>,
@@ -122,6 +161,29 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
         let this = self.eval_context_mut();
 
         this.yield_active_thread()?;
+
+        Ok(0)
+    }
+
+    fn nanosleep(
+        &mut self,
+        req: OpTy<'tcx, Tag>,
+        _rem: OpTy<'tcx, Tag>,
+    ) -> InterpResult<'tcx, i32> {
+        let this = self.eval_context_mut();
+
+        let active_thread = this.get_active_thread()?;
+
+        let duration = this.posix_timespec_to_duration(req)?;
+        let timeout = Instant::now().checked_add(duration).unwrap();
+
+        this.block_thread(active_thread)?;
+
+        this.register_timeout_callback(
+            active_thread,
+            timeout,
+            Box::new(move |ecx| ecx.unblock_thread(active_thread)),
+        )?;
 
         Ok(0)
     }

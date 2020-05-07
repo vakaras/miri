@@ -357,6 +357,11 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
                 let result = this.sched_yield()?;
                 this.write_scalar(Scalar::from_i32(result), dest)?;
             }
+            "nanosleep" => {
+                assert_eq!(args.len(), 2);
+                let result = this.nanosleep(args[0], args[1])?;
+                this.write_scalar(Scalar::from_i32(result), dest)?;
+            }
 
             // Miscellaneous
             "isatty" => {
