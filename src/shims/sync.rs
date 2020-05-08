@@ -716,13 +716,10 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
         let clock_id = cond_get_clock_id(this, cond_op)?.to_i32()?;
         let duration = this.posix_timespec_to_duration(abstime_op)?;
 
-        let timeout_time = if clock_id == this.eval_libc_i32("CLOCK_REALTIME")? {
-            let time_anchor_since_epoch =
-                this.machine.time_anchor_timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap();
-            let duration_since_time_anchor = duration.checked_sub(time_anchor_since_epoch).unwrap();
-            this.machine.time_anchor.checked_add(duration_since_time_anchor).unwrap()
+        let (timeout_time, clock) = if clock_id == this.eval_libc_i32("CLOCK_REALTIME")? {
+            Time::RealTime(SystemTime::UNIX_EPOCH.checked_add(duration).unwrap())
         } else if clock_id == this.eval_libc_i32("CLOCK_MONOTONIC")? {
-            this.machine.time_anchor.checked_add(duration).unwrap()
+            Time::Monotonic(this.machine.time_anchor.checked_add(duration).unwrap())
         } else {
             throw_ub_format!("Unsupported clock id.");
         };
@@ -731,6 +728,7 @@ pub trait EvalContextExt<'mir, 'tcx: 'mir>: crate::MiriEvalContextExt<'mir, 'tcx
         this.register_timeout_callback(
             active_thread,
             timeout_time,
+            clock,
             Box::new(move |ecx| {
                 // Try to reacquire the mutex.
                 reacquire_cond_mutex(ecx, active_thread, mutex_id)?;
